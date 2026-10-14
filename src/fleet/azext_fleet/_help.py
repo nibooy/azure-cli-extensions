@@ -91,6 +91,25 @@ helps['fleet get-credentials'] = """
           text: az fleet get-credentials -g MyFleetResourceGroup -n MyFleetName --member MyFleetMember
 """
 
+helps['fleet list-member-credentials'] = """
+    type: command
+    short-summary: Lists Kubernetes credentials for Fleet members.
+    parameters:
+    - name: --member-names
+      type: string
+      short-summary: Space-separated Fleet member names. Specify between 1 and 100 unique names.
+    - name: --continuation-token
+      type: string
+      short-summary: Continuation token from a previous request that omitted --member-names.
+    examples:
+        - name: List credentials for all applicable Fleet members.
+          text: az fleet list-member-credentials -g MyFleetResourceGroup -n MyFleetName
+        - name: List credentials for selected Fleet members.
+          text: az fleet list-member-credentials -g MyFleetResourceGroup -n MyFleetName --member-names Member1 Member2
+        - name: List the next page of Fleet member credentials.
+          text: az fleet list-member-credentials -g MyFleetResourceGroup -n MyFleetName --continuation-token MyContinuationToken
+"""
+
 helps['fleet reconcile'] = """
     type: command
     short-summary: Reconciles a fleet.
@@ -623,6 +642,33 @@ helps['fleet namespace get-credentials'] = """
           text: az fleet namespace get-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --member MyFleetMember
         - name: Save kubeconfig to a specific file.
           text: az fleet namespace get-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --file ~/my-namespace-config
+"""
+
+helps['fleet namespace list-credentials'] = """
+    type: command
+    short-summary: Lists Fleet hub credentials scoped to a managed namespace.
+    examples:
+        - name: List hub credentials scoped to a managed namespace.
+          text: az fleet namespace list-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace
+"""
+
+helps['fleet namespace list-member-credentials'] = """
+    type: command
+    short-summary: Lists Fleet member credentials scoped to a managed namespace.
+    parameters:
+    - name: --member-names
+      type: string
+      short-summary: Space-separated Fleet member names. Specify between 1 and 100 unique names.
+    - name: --continuation-token
+      type: string
+      short-summary: Continuation token from a previous request that omitted --member-names.
+    examples:
+        - name: List managed namespace credentials for all applicable Fleet members.
+          text: az fleet namespace list-member-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace
+        - name: List managed namespace credentials for selected Fleet members.
+          text: az fleet namespace list-member-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --member-names Member1 Member2
+        - name: List the next page of managed namespace member credentials.
+          text: az fleet namespace list-member-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --continuation-token MyContinuationToken
 """
 
 helps['fleet clustermeshprofile'] = """

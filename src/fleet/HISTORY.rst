@@ -197,3 +197,4 @@ Release History
 1.12.0
 ++++++
 * Add 2026-11-02-preview API version and ``az fleet identitybindingprofile`` commands.
+* Add commands to list Fleet member credentials and managed namespace credentials.
