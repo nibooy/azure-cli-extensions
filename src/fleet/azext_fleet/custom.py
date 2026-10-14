@@ -13,7 +13,7 @@ from knack.log import get_logger
 from knack.util import CLIError
 
 from azure.cli.core.commands.client_factory import get_subscription_id
-from azure.cli.core.azclierror import InvalidArgumentValueError
+from azure.cli.core.azclierror import InvalidArgumentValueError, MutuallyExclusiveArgumentError
 from azure.cli.core.util import sdk_no_wait, get_file_json, shell_safe_json_parse
 from azure.cli.core import get_default_cli
 from azure.mgmt.core.tools import parse_resource_id
@@ -1253,6 +1253,69 @@ def get_namespace_credentials(cmd,
 
         # Apply kubelogin conversion to the final file after namespace modification
         _convert_kubeconfig_to_azurecli(path)
+
+
+def _build_member_credential_request(cmd, member_names=None, continuation_token=None):
+    if member_names and continuation_token:
+        raise MutuallyExclusiveArgumentError(
+            "--member-names and --continuation-token cannot be used together."
+        )
+    if member_names and len(member_names) > 100:
+        raise InvalidArgumentValueError("--member-names accepts at most 100 names.")
+    if member_names and len(member_names) != len(set(member_names)):
+        raise InvalidArgumentValueError("--member-names must contain unique names.")
+
+    request_model = cmd.get_models(
+        "FleetMemberCredentialRequest",
+        resource_type=CUSTOM_MGMT_FLEET,
+        operation_group="fleets"
+    )
+    return request_model(
+        member_names=member_names,
+        continuation_token=continuation_token
+    )
+
+
+def list_member_credentials(cmd,
+                            client,
+                            resource_group_name,
+                            name,
+                            member_names=None,
+                            continuation_token=None):
+    request = _build_member_credential_request(cmd, member_names, continuation_token)
+    return client.list_member_credentials(
+        resource_group_name=resource_group_name,
+        fleet_name=name,
+        body=request
+    )
+
+
+def list_namespace_credentials(cmd,  # pylint: disable=unused-argument
+                               client,
+                               resource_group_name,
+                               fleet_name,
+                               managed_namespace_name):
+    return client.list_credentials(
+        resource_group_name=resource_group_name,
+        fleet_name=fleet_name,
+        managed_namespace_name=managed_namespace_name
+    )
+
+
+def list_namespace_member_credentials(cmd,
+                                      client,
+                                      resource_group_name,
+                                      fleet_name,
+                                      managed_namespace_name,
+                                      member_names=None,
+                                      continuation_token=None):
+    request = _build_member_credential_request(cmd, member_names, continuation_token)
+    return client.list_member_credentials(
+        resource_group_name=resource_group_name,
+        fleet_name=fleet_name,
+        managed_namespace_name=managed_namespace_name,
+        body=request
+    )
 
 
 def create_cluster_mesh_profile(cmd,

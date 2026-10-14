@@ -67,6 +67,13 @@ def load_arguments(self, _):
                    default=os.path.join(os.path.expanduser('~'), '.kube', 'config'))
         c.ignore('skip_kubelogin_conversion')  # Internal parameter, not exposed to users
 
+    with self.argument_context('fleet list-member-credentials') as c:
+        c.argument('member_names', options_list=['--member-names'], nargs='+',
+                   help='Space-separated Fleet member names. Specify between 1 and 100 unique names. '
+                        'Omit to list credentials for all applicable members.')
+        c.argument('continuation_token', options_list=['--continuation-token'],
+                   help='Continuation token from a previous request that omitted --member-names.')
+
     with self.argument_context('fleet member') as c:
         c.argument('name', options_list=['--name', '-n'], help='Specify the fleet member name.')
         c.argument('fleet_name', options_list=['--fleet-name', '-f'], help='Specify the fleet name.')
@@ -225,6 +232,19 @@ def load_arguments(self, _):
         c.argument('overwrite_existing', help='Overwrite any existing cluster entry with the same name.')
         c.argument('path', options_list=['--file'], type=file_type, completer=FilesCompleter(),
                    default=os.path.join(os.path.expanduser('~'), '.kube', 'config'))
+
+    with self.argument_context('fleet namespace list-credentials') as c:
+        c.argument('managed_namespace_name', options_list=['--name', '-n'],
+                   help='Specify the managed namespace name.')
+
+    with self.argument_context('fleet namespace list-member-credentials') as c:
+        c.argument('managed_namespace_name', options_list=['--name', '-n'],
+                   help='Specify the managed namespace name.')
+        c.argument('member_names', options_list=['--member-names'], nargs='+',
+                   help='Space-separated Fleet member names. Specify between 1 and 100 unique names. '
+                        'Omit to list credentials for all applicable members.')
+        c.argument('continuation_token', options_list=['--continuation-token'],
+                   help='Continuation token from a previous request that omitted --member-names.')
 
     with self.argument_context('fleet clustermeshprofile') as c:
         c.argument('name', options_list=['--name', '-n'], help='Specify name for the cluster mesh profile.')
