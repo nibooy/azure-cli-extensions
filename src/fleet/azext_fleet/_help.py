@@ -646,10 +646,23 @@ helps['fleet namespace get-credentials'] = """
 
 helps['fleet namespace list-credentials'] = """
     type: command
-    short-summary: Lists Fleet hub credentials scoped to a managed namespace.
+    short-summary: Get and merge Fleet hub credentials scoped to a managed namespace into kubeconfig.
+    long-summary: Saved kubeconfigs are automatically converted to Azure CLI authentication when kubelogin is installed.
+    parameters:
+    - name: --context
+      type: string
+      short-summary: If specified, overwrite the default context name.
+    - name: --overwrite-existing
+      type: bool
+      short-summary: Overwrite any existing cluster entry with the same name.
+    - name: --file
+      type: string
+      short-summary: Kubernetes configuration file to update. Use "-" to print unconverted YAML to stdout instead.
     examples:
-        - name: List hub credentials scoped to a managed namespace.
+        - name: Merge hub credentials scoped to a managed namespace into the default kubeconfig.
           text: az fleet namespace list-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace
+        - name: Save namespace credentials to a specific kubeconfig and replace conflicting entries.
+          text: az fleet namespace list-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --file ~/my-namespace-config --overwrite-existing
 """
 
 helps['fleet namespace list-member-credentials'] = """

@@ -236,6 +236,11 @@ def load_arguments(self, _):
     with self.argument_context('fleet namespace list-credentials') as c:
         c.argument('managed_namespace_name', options_list=['--name', '-n'],
                    help='Specify the managed namespace name.')
+        c.argument('context_name', options_list=['--context'],
+                   help='If specified, overwrite the default context name.')
+        c.argument('overwrite_existing', help='Overwrite any existing cluster entry with the same name.')
+        c.argument('path', options_list=['--file'], type=file_type, completer=FilesCompleter(),
+                   default=os.path.join(os.path.expanduser('~'), '.kube', 'config'))
 
     with self.argument_context('fleet namespace list-member-credentials') as c:
         c.argument('managed_namespace_name', options_list=['--name', '-n'],

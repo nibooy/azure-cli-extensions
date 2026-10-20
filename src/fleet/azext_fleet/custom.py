@@ -3,6 +3,8 @@
 # Licensed under the MIT License. See License.txt in the project root for license information.
 # --------------------------------------------------------------------------------------------
 
+import base64
+import binascii
 import os
 import shutil
 import subprocess
@@ -1294,12 +1296,28 @@ def list_namespace_credentials(cmd,  # pylint: disable=unused-argument
                                client,
                                resource_group_name,
                                fleet_name,
-                               managed_namespace_name):
-    return client.list_credentials(
+                               managed_namespace_name,
+                               path=os.path.join(os.path.expanduser('~'), '.kube', 'config'),
+                               overwrite_existing=False,
+                               context_name=None):
+    credential_results = client.list_credentials(
         resource_group_name=resource_group_name,
         fleet_name=fleet_name,
         managed_namespace_name=managed_namespace_name
     )
+    if (not credential_results or not credential_results.kubeconfigs or
+            not credential_results.kubeconfigs[0].value):
+        raise CLIError("No Kubernetes credentials found.")
+
+    try:
+        kubeconfig = base64.b64decode(
+            credential_results.kubeconfigs[0].value, validate=True
+        ).decode(encoding='UTF-8')
+    except (binascii.Error, ValueError) as exc:
+        raise CLIError("Failed to decode Kubernetes credentials.") from exc
+
+    print_or_merge_credentials(path, kubeconfig, overwrite_existing, context_name)
+    _convert_kubeconfig_to_azurecli(path)
 
 
 def list_namespace_member_credentials(cmd,

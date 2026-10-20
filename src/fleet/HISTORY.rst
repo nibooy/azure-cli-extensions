@@ -198,3 +198,4 @@ Release History
 ++++++
 * Add 2026-11-02-preview API version and ``az fleet identitybindingprofile`` commands.
 * Add commands to list Fleet member credentials and managed namespace credentials.
+* Save and merge ``az fleet namespace list-credentials`` into kubeconfig and automatically convert saved credentials to Azure CLI authentication when kubelogin is installed.
