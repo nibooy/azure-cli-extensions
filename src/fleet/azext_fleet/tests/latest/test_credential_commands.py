@@ -26,6 +26,8 @@ from azext_fleet.vendored_sdks.v2026_11_02_preview.models import (
     FleetManagedNamespaceCredentialResult,
     FleetManagedNamespaceCredentialResults,
     FleetMemberCredentialRequest,
+    FleetMemberCredentialResults,
+    FleetMemberManagedNamespaceCredentialResults,
 )
 
 
@@ -88,43 +90,6 @@ class CredentialCommandsTestCase(unittest.TestCase):
                 self.cmd,
                 ["member-1", "member-1"]
             )
-
-    def test_lists_fleet_member_credentials(self):
-        list_member_credentials(
-            self.cmd,
-            self.client,
-            "resource-group",
-            "fleet",
-            member_names=["member-1"]
-        )
-
-        request = self.client.list_member_credentials.call_args.kwargs["body"]
-        self.assertEqual(request.member_names, ["member-1"])
-        self.client.list_member_credentials.assert_called_once_with(
-            resource_group_name="resource-group",
-            fleet_name="fleet",
-            body=request
-        )
-
-    def test_lists_namespace_member_credentials(self):
-        list_namespace_member_credentials(
-            self.cmd,
-            self.client,
-            "resource-group",
-            "fleet",
-            "namespace",
-            continuation_token="next-page"
-        )
-
-        request = self.client.list_member_credentials.call_args.kwargs["body"]
-        self.assertEqual(request.continuation_token, "next-page")
-        self.client.list_member_credentials.assert_called_once_with(
-            resource_group_name="resource-group",
-            fleet_name="fleet",
-            managed_namespace_name="namespace",
-            body=request
-        )
-
 
 class NamespaceCredentialsTestCase(unittest.TestCase):
     def setUp(self):
@@ -271,6 +236,211 @@ class NamespaceCredentialsTestCase(unittest.TestCase):
         with self.assertRaisesRegex(CLIError, "decode"):
             self._get_credentials(path=self.path)
         self.assertFalse(os.path.exists(self.path))
+
+
+class MemberCredentialsTestCase(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+        self.client = Mock()
+
+    @staticmethod
+    def _member(name):
+        config = {
+            "apiVersion": "v1", "kind": "Config", "current-context": name,
+            "clusters": [{"name": name, "cluster": {"server": f"https://{name}.example.com"}}],
+            "contexts": [{"name": name, "context": {
+                "cluster": name, "user": name, "namespace": "namespace",
+            }}],
+            "users": [{"name": name, "user": {"exec": {
+                "apiVersion": "client.authentication.k8s.io/v1beta1",
+                "command": "kubelogin", "args": ["get-token", "--login", "devicecode"],
+            }}}],
+        }
+        return {"name": name, "status": "Succeeded",
+                "kubeconfig": base64.b64encode(yaml.safe_dump(config).encode("utf-8")).decode("ascii")}
+
+    @staticmethod
+    def _response(namespace, members, token=None):
+        model = FleetMemberManagedNamespaceCredentialResults if namespace else FleetMemberCredentialResults
+        return model.deserialize({"value": members, "continuationToken": token})
+
+    def _invoke(self, namespace, **kwargs):
+        if namespace:
+            return list_namespace_member_credentials(
+                _FakeCmd(), self.client, "resource-group", "fleet", "namespace", **kwargs
+            )
+        return list_member_credentials(_FakeCmd(), self.client, "resource-group", "fleet", **kwargs)
+
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    def test_merges_all_pages_and_converts_once(self, convert):
+        for namespace in (False, True):
+            with self.subTest(namespace=namespace):
+                self.client.reset_mock()
+                convert.reset_mock()
+                path = os.path.join(self.directory, str(namespace))
+                with open(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600), "wb") as stream:
+                    stream.write(base64.b64decode(self._member("existing")["kubeconfig"]))
+                self.client.list_member_credentials.side_effect = [
+                    self._response(namespace, [self._member("one")], "page-2"),
+                    self._response(namespace, [self._member("two")]),
+                ]
+                self.assertIsNone(self._invoke(namespace, path=path))
+                calls = self.client.list_member_credentials.call_args_list
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(calls[0].kwargs["body"].serialize(), {})
+                self.assertEqual(calls[1].kwargs["body"].serialize(), {"continuationToken": "page-2"})
+                for call in calls:
+                    self.assertEqual(call.kwargs["resource_group_name"], "resource-group")
+                    self.assertEqual(call.kwargs["fleet_name"], "fleet")
+                    self.assertEqual(call.kwargs.get("managed_namespace_name"), "namespace" if namespace else None)
+                with open(path, encoding="utf-8") as stream:
+                    config = yaml.safe_load(stream)
+                self.assertEqual([ctx["name"] for ctx in config["contexts"]], ["existing", "one", "two"])
+                self.assertEqual(config["current-context"], "two")
+                self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+                convert.assert_called_once_with(path)
+
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    def test_preserves_member_selection_and_starting_token(self, _convert):
+        for namespace in (False, True):
+            for selection in ({"member_names": ["one"]}, {"continuation_token": "start"}):
+                with self.subTest(namespace=namespace, selection=selection):
+                    self.client.list_member_credentials.return_value = self._response(namespace, [self._member("one")])
+                    self._invoke(namespace, path=os.path.join(self.directory, "selected"),
+                                 overwrite_existing=True, **selection)
+                    request = self.client.list_member_credentials.call_args.kwargs["body"]
+                    self.assertEqual(request.member_names, selection.get("member_names"))
+                    self.assertEqual(request.continuation_token, selection.get("continuation_token"))
+
+    @patch("azext_fleet.custom.logger")
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    def test_saves_successes_and_reports_failures_across_pages(self, convert, logger):
+        for namespace in (False, True):
+            with self.subTest(namespace=namespace):
+                convert.reset_mock()
+                logger.reset_mock()
+                path = os.path.join(self.directory, str(namespace))
+                failed = {"name": "bad", "status": "Failed",
+                          "error": {"code": "Forbidden", "message": "Access denied"}}
+                self.client.list_member_credentials.side_effect = [
+                    self._response(namespace, [failed], "page-2"),
+                    self._response(namespace, [self._member("good")]),
+                ]
+                with self.assertRaisesRegex(CLIError, "bad"):
+                    self._invoke(namespace, path=path)
+                with open(path, encoding="utf-8") as stream:
+                    self.assertEqual(yaml.safe_load(stream)["current-context"], "good")
+                convert.assert_called_once_with(path)
+                self.assertIn("Access denied", str(logger.error.call_args))
+                self.assertIn("Forbidden", str(logger.error.call_args))
+
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    def test_rejects_failed_missing_and_invalid_credentials(self, convert):
+        for namespace in (False, True):
+            for member in ({"name": "bad", "status": "Failed"},
+                           {"name": "bad", "status": "Succeeded"},
+                           {"name": "bad", "status": "Succeeded", "kubeconfig": "invalid!"},
+                           {"name": "bad", "status": "Succeeded", "kubeconfig": "/w=="}):
+                with self.subTest(namespace=namespace, member=member):
+                    self.client.list_member_credentials.return_value = self._response(namespace, [member])
+                    path = os.path.join(self.directory, "invalid")
+                    with self.assertRaisesRegex(CLIError, "bad"):
+                        self._invoke(namespace, path=path)
+                    self.assertFalse(os.path.exists(path))
+        convert.assert_not_called()
+
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    def test_rejects_empty_response(self, convert):
+        for namespace in (False, True):
+            for response in (None, self._response(namespace, [])):
+                with self.subTest(namespace=namespace, response=response):
+                    self.client.list_member_credentials.return_value = response
+                    with self.assertRaisesRegex(CLIError, "No Kubernetes credentials"):
+                        self._invoke(namespace, path=os.path.join(self.directory, "empty"))
+        convert.assert_not_called()
+
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    def test_converts_saved_credentials_if_later_page_fails(self, convert):
+        for namespace in (False, True):
+            with self.subTest(namespace=namespace):
+                convert.reset_mock()
+                path = os.path.join(self.directory, str(namespace))
+                self.client.list_member_credentials.side_effect = [
+                    self._response(namespace, [self._member("one")], "next"),
+                    CLIError("Service unavailable"),
+                ]
+                with self.assertRaisesRegex(CLIError, "Service unavailable"):
+                    self._invoke(namespace, path=path)
+                convert.assert_called_once_with(path)
+
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    def test_continues_after_empty_page(self, convert):
+        for namespace in (False, True):
+            with self.subTest(namespace=namespace):
+                convert.reset_mock()
+                path = os.path.join(self.directory, str(namespace))
+                self.client.list_member_credentials.side_effect = [
+                    self._response(namespace, [], "next"),
+                    self._response(namespace, [self._member("one")]),
+                ]
+                self._invoke(namespace, path=path)
+                convert.assert_called_once_with(path)
+
+    @patch("azext_fleet.custom.logger")
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    @patch("azext_fleet.custom.print_or_merge_credentials")
+    def test_continues_after_member_merge_error(self, merge, convert, logger):
+        for namespace in (False, True):
+            with self.subTest(namespace=namespace):
+                merge.reset_mock()
+                convert.reset_mock()
+                logger.reset_mock()
+                merge.side_effect = [CLIError("Merge conflict"), None]
+                self.client.list_member_credentials.return_value = self._response(
+                    namespace, [self._member("bad"), self._member("good")]
+                )
+                path = os.path.join(self.directory, str(namespace))
+                with self.assertRaisesRegex(CLIError, "bad"):
+                    self._invoke(namespace, path=path)
+                self.assertEqual(merge.call_count, 2)
+                self.assertIn("Merge conflict", str(logger.error.call_args))
+                convert.assert_called_once_with(path)
+
+    def test_rejects_stdout_before_calling_service(self):
+        for namespace in (False, True):
+            with self.subTest(namespace=namespace):
+                with self.assertRaisesRegex(InvalidArgumentValueError, "--file -"):
+                    self._invoke(namespace, path="-")
+        self.client.list_member_credentials.assert_not_called()
+
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    def test_rejects_repeated_continuation_tokens(self, convert):
+        for namespace in (False, True):
+            with self.subTest(namespace=namespace):
+                convert.reset_mock()
+                path = os.path.join(self.directory, str(namespace))
+                self.client.list_member_credentials.return_value = self._response(
+                    namespace, [self._member("one")], "same"
+                )
+                with self.assertRaisesRegex(CLIError, "continuation token"):
+                    self._invoke(namespace, path=path, continuation_token="same")
+                convert.assert_called_once_with(path)
+
+    @patch("azext_fleet.custom._convert_kubeconfig_to_azurecli")
+    @patch("azext_fleet.custom.print_or_merge_credentials")
+    def test_default_path_and_overwrite_option(self, merge, convert):
+        for namespace in (False, True):
+            with self.subTest(namespace=namespace):
+                merge.reset_mock()
+                convert.reset_mock()
+                self.client.list_member_credentials.return_value = self._response(namespace, [self._member("one")])
+                self._invoke(namespace, overwrite_existing=True)
+                path = os.path.join(os.path.expanduser("~"), ".kube", "config")
+                self.assertEqual(merge.call_args.args[0], path)
+                self.assertEqual(merge.call_args.args[2:], (True, None))
+                convert.assert_called_once_with(path)
 
 
 if __name__ == "__main__":

@@ -1283,13 +1283,79 @@ def list_member_credentials(cmd,
                             resource_group_name,
                             name,
                             member_names=None,
-                            continuation_token=None):
-    request = _build_member_credential_request(cmd, member_names, continuation_token)
-    return client.list_member_credentials(
-        resource_group_name=resource_group_name,
-        fleet_name=name,
-        body=request
+                            continuation_token=None,
+                            path=os.path.join(os.path.expanduser('~'), '.kube', 'config'),
+                            overwrite_existing=False):
+    _save_member_credentials(
+        cmd, client, resource_group_name, name, member_names, continuation_token,
+        path, overwrite_existing
     )
+
+
+def _decode_kubeconfig(value):
+    try:
+        return base64.b64decode(value, validate=True).decode(encoding='UTF-8')
+    except (binascii.Error, ValueError) as exc:
+        raise CLIError("Failed to decode Kubernetes credentials.") from exc
+
+
+def _save_member_credentials(cmd, client, resource_group_name, fleet_name, member_names,
+                             continuation_token, path, overwrite_existing, managed_namespace_name=None):
+    if is_stdout_path(path):
+        raise InvalidArgumentValueError(
+            "Member credentials must be saved to a kubeconfig file; --file - is not supported."
+        )
+    request = _build_member_credential_request(cmd, member_names, continuation_token)
+    tokens = {continuation_token} if continuation_token else set()
+    failures = []
+    saved = False
+    try:
+        while True:
+            kwargs = {
+                "resource_group_name": resource_group_name,
+                "fleet_name": fleet_name,
+                "body": request,
+            }
+            if managed_namespace_name is not None:
+                kwargs["managed_namespace_name"] = managed_namespace_name
+            response = client.list_member_credentials(**kwargs)
+            if response is None:
+                raise CLIError("No Kubernetes credentials found.")
+
+            for member in response.value or []:
+                if member.status != "Succeeded" or not member.kubeconfig:
+                    error = member.error
+                    logger.error(
+                        "Failed to get credentials for Fleet member '%s': %s (%s)",
+                        member.name, error.message if error else "No Kubernetes credentials found.",
+                        error.code if error else member.status
+                    )
+                    failures.append(member.name)
+                    continue
+                try:
+                    kubeconfig = _decode_kubeconfig(member.kubeconfig)
+                    print_or_merge_credentials(path, kubeconfig, overwrite_existing, None)
+                except CLIError as exc:
+                    logger.error("Failed to save credentials for Fleet member '%s': %s", member.name, exc)
+                    failures.append(member.name)
+                    continue
+                saved = True
+
+            token = response.continuation_token
+            if not token:
+                break
+            if token in tokens:
+                raise CLIError("The service returned a repeated continuation token.")
+            tokens.add(token)
+            request = _build_member_credential_request(cmd, continuation_token=token)
+    finally:
+        if saved:
+            _convert_kubeconfig_to_azurecli(path)
+
+    if failures:
+        raise CLIError(f"Failed to get or save credentials for Fleet members: {', '.join(failures)}.")
+    if not saved:
+        raise CLIError("No Kubernetes credentials found.")
 
 
 def list_namespace_credentials(cmd,  # pylint: disable=unused-argument
@@ -1309,13 +1375,7 @@ def list_namespace_credentials(cmd,  # pylint: disable=unused-argument
             not credential_results.kubeconfigs[0].value):
         raise CLIError("No Kubernetes credentials found.")
 
-    try:
-        kubeconfig = base64.b64decode(
-            credential_results.kubeconfigs[0].value, validate=True
-        ).decode(encoding='UTF-8')
-    except (binascii.Error, ValueError) as exc:
-        raise CLIError("Failed to decode Kubernetes credentials.") from exc
-
+    kubeconfig = _decode_kubeconfig(credential_results.kubeconfigs[0].value)
     print_or_merge_credentials(path, kubeconfig, overwrite_existing, context_name)
     _convert_kubeconfig_to_azurecli(path)
 
@@ -1326,13 +1386,12 @@ def list_namespace_member_credentials(cmd,
                                       fleet_name,
                                       managed_namespace_name,
                                       member_names=None,
-                                      continuation_token=None):
-    request = _build_member_credential_request(cmd, member_names, continuation_token)
-    return client.list_member_credentials(
-        resource_group_name=resource_group_name,
-        fleet_name=fleet_name,
-        managed_namespace_name=managed_namespace_name,
-        body=request
+                                      continuation_token=None,
+                                      path=os.path.join(os.path.expanduser('~'), '.kube', 'config'),
+                                      overwrite_existing=False):
+    _save_member_credentials(
+        cmd, client, resource_group_name, fleet_name, member_names, continuation_token,
+        path, overwrite_existing, managed_namespace_name
     )
 
 

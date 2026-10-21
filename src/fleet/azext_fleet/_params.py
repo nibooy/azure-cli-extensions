@@ -72,7 +72,10 @@ def load_arguments(self, _):
                    help='Space-separated Fleet member names. Specify between 1 and 100 unique names. '
                         'Omit to list credentials for all applicable members.')
         c.argument('continuation_token', options_list=['--continuation-token'],
-                   help='Continuation token from a previous request that omitted --member-names.')
+                   help='Start at this continuation token and fetch all remaining pages. Cannot be used with --member-names.')
+        c.argument('overwrite_existing', help='Overwrite any existing cluster entry with the same name.')
+        c.argument('path', options_list=['--file'], type=file_type, completer=FilesCompleter(),
+                   default=os.path.join(os.path.expanduser('~'), '.kube', 'config'))
 
     with self.argument_context('fleet member') as c:
         c.argument('name', options_list=['--name', '-n'], help='Specify the fleet member name.')
@@ -249,7 +252,10 @@ def load_arguments(self, _):
                    help='Space-separated Fleet member names. Specify between 1 and 100 unique names. '
                         'Omit to list credentials for all applicable members.')
         c.argument('continuation_token', options_list=['--continuation-token'],
-                   help='Continuation token from a previous request that omitted --member-names.')
+                   help='Start at this continuation token and fetch all remaining pages. Cannot be used with --member-names.')
+        c.argument('overwrite_existing', help='Overwrite any existing cluster entry with the same name.')
+        c.argument('path', options_list=['--file'], type=file_type, completer=FilesCompleter(),
+                   default=os.path.join(os.path.expanduser('~'), '.kube', 'config'))
 
     with self.argument_context('fleet clustermeshprofile') as c:
         c.argument('name', options_list=['--name', '-n'], help='Specify name for the cluster mesh profile.')
