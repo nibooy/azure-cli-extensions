@@ -87,6 +87,7 @@ def load_command_table(self, _):
         g.custom_command("update", "update_fleet", supports_no_wait=True)
         g.custom_show_command("show", "show_fleet")
         g.custom_command("list", "list_fleet")
+        g.custom_command("list-member-credentials", "list_member_credentials")
         g.custom_command("delete", "delete_fleet", supports_no_wait=True, confirmation=True)
         g.custom_command("get-credentials", "get_credentials")
         g.custom_command("reconcile", "reconcile_fleet", supports_no_wait=True)
@@ -147,6 +148,8 @@ def load_command_table(self, _):
         g.custom_command("delete", "delete_managed_namespace", supports_no_wait=True, confirmation=True)
         g.custom_command("list", "list_managed_namespaces")
         g.custom_show_command("show", "show_managed_namespace")
+        g.custom_command("list-credentials", "list_namespace_credentials")
+        g.custom_command("list-member-credentials", "list_namespace_member_credentials")
         g.custom_command("get-credentials", "get_namespace_credentials")
         g.wait_command("wait")
 

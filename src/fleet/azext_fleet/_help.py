@@ -91,6 +91,38 @@ helps['fleet get-credentials'] = """
           text: az fleet get-credentials -g MyFleetResourceGroup -n MyFleetName --member MyFleetMember
 """
 
+helps['fleet list-member-credentials'] = """
+    type: command
+    short-summary: Get and merge Kubernetes credentials for Fleet members into kubeconfig.
+    long-summary: |
+      Fetches all remaining pages and merges successful member credentials into kubeconfig.
+      Saved kubeconfigs are automatically converted to Azure CLI authentication when kubelogin is installed.
+      Per-member failures are reported and cause a command error after successful credentials are saved.
+      The returned context names are preserved; the last merged context becomes the current context.
+    parameters:
+    - name: --member-names
+      type: string
+      short-summary: Space-separated Fleet member names. Specify between 1 and 100 unique names.
+    - name: --continuation-token
+      type: string
+      short-summary: Start at this continuation token and fetch all remaining pages. Cannot be used with --member-names.
+    - name: --overwrite-existing
+      type: bool
+      short-summary: Overwrite any existing cluster entry with the same name.
+    - name: --file
+      type: string
+      short-summary: Kubernetes configuration file to update. Printing to stdout with "-" is not supported.
+    examples:
+        - name: Merge credentials for all applicable Fleet members.
+          text: az fleet list-member-credentials -g MyFleetResourceGroup -n MyFleetName
+        - name: Merge credentials for selected Fleet members.
+          text: az fleet list-member-credentials -g MyFleetResourceGroup -n MyFleetName --member-names Member1 Member2
+        - name: Merge all remaining pages of Fleet member credentials.
+          text: az fleet list-member-credentials -g MyFleetResourceGroup -n MyFleetName --continuation-token MyContinuationToken
+        - name: Save member credentials to a specific file and replace conflicting entries.
+          text: az fleet list-member-credentials -g MyFleetResourceGroup -n MyFleetName --file ~/my-member-config --overwrite-existing
+"""
+
 helps['fleet reconcile'] = """
     type: command
     short-summary: Reconciles a fleet.
@@ -623,6 +655,59 @@ helps['fleet namespace get-credentials'] = """
           text: az fleet namespace get-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --member MyFleetMember
         - name: Save kubeconfig to a specific file.
           text: az fleet namespace get-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --file ~/my-namespace-config
+"""
+
+helps['fleet namespace list-credentials'] = """
+    type: command
+    short-summary: Get and merge Fleet hub credentials scoped to a managed namespace into kubeconfig.
+    long-summary: Saved kubeconfigs are automatically converted to Azure CLI authentication when kubelogin is installed.
+    parameters:
+    - name: --context
+      type: string
+      short-summary: If specified, overwrite the default context name.
+    - name: --overwrite-existing
+      type: bool
+      short-summary: Overwrite any existing cluster entry with the same name.
+    - name: --file
+      type: string
+      short-summary: Kubernetes configuration file to update. Use "-" to print unconverted YAML to stdout instead.
+    examples:
+        - name: Merge hub credentials scoped to a managed namespace into the default kubeconfig.
+          text: az fleet namespace list-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace
+        - name: Save namespace credentials to a specific kubeconfig and replace conflicting entries.
+          text: az fleet namespace list-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --file ~/my-namespace-config --overwrite-existing
+"""
+
+helps['fleet namespace list-member-credentials'] = """
+    type: command
+    short-summary: Get and merge Fleet member credentials scoped to a managed namespace into kubeconfig.
+    long-summary: |
+      Fetches all remaining pages and merges successful member credentials into kubeconfig.
+      Saved kubeconfigs are automatically converted to Azure CLI authentication when kubelogin is installed.
+      Per-member failures are reported and cause a command error after successful credentials are saved.
+      The returned context names and namespace are preserved; the last merged context becomes the current context.
+    parameters:
+    - name: --member-names
+      type: string
+      short-summary: Space-separated Fleet member names. Specify between 1 and 100 unique names.
+    - name: --continuation-token
+      type: string
+      short-summary: Start at this continuation token and fetch all remaining pages. Cannot be used with --member-names.
+    - name: --overwrite-existing
+      type: bool
+      short-summary: Overwrite any existing cluster entry with the same name.
+    - name: --file
+      type: string
+      short-summary: Kubernetes configuration file to update. Printing to stdout with "-" is not supported.
+    examples:
+        - name: Merge managed namespace credentials for all applicable Fleet members.
+          text: az fleet namespace list-member-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace
+        - name: Merge managed namespace credentials for selected Fleet members.
+          text: az fleet namespace list-member-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --member-names Member1 Member2
+        - name: Merge all remaining pages of managed namespace member credentials.
+          text: az fleet namespace list-member-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --continuation-token MyContinuationToken
+        - name: Save namespace member credentials to a specific file and replace conflicting entries.
+          text: az fleet namespace list-member-credentials -g MyFleetResourceGroup -f MyFleetName -n MyManagedNamespace --file ~/my-member-config --overwrite-existing
 """
 
 helps['fleet clustermeshprofile'] = """

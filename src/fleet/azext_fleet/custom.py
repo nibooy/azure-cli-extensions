@@ -3,6 +3,8 @@
 # Licensed under the MIT License. See License.txt in the project root for license information.
 # --------------------------------------------------------------------------------------------
 
+import base64
+import binascii
 import os
 import shutil
 import subprocess
@@ -13,7 +15,7 @@ from knack.log import get_logger
 from knack.util import CLIError
 
 from azure.cli.core.commands.client_factory import get_subscription_id
-from azure.cli.core.azclierror import InvalidArgumentValueError
+from azure.cli.core.azclierror import InvalidArgumentValueError, MutuallyExclusiveArgumentError
 from azure.cli.core.util import sdk_no_wait, get_file_json, shell_safe_json_parse
 from azure.cli.core import get_default_cli
 from azure.mgmt.core.tools import parse_resource_id
@@ -1254,6 +1256,144 @@ def get_namespace_credentials(cmd,
 
         # Apply kubelogin conversion to the final file after namespace modification
         _convert_kubeconfig_to_azurecli(path)
+
+
+def _build_member_credential_request(cmd, member_names=None, continuation_token=None):
+    if member_names and continuation_token:
+        raise MutuallyExclusiveArgumentError(
+            "--member-names and --continuation-token cannot be used together."
+        )
+    if member_names and len(member_names) > 100:
+        raise InvalidArgumentValueError("--member-names accepts at most 100 names.")
+    if member_names and len(member_names) != len(set(member_names)):
+        raise InvalidArgumentValueError("--member-names must contain unique names.")
+
+    request_model = cmd.get_models(
+        "FleetMemberCredentialRequest",
+        resource_type=CUSTOM_MGMT_FLEET,
+        operation_group="fleets"
+    )
+    return request_model(
+        member_names=member_names,
+        continuation_token=continuation_token
+    )
+
+
+def list_member_credentials(cmd,
+                            client,
+                            resource_group_name,
+                            name,
+                            member_names=None,
+                            continuation_token=None,
+                            path=os.path.join(os.path.expanduser('~'), '.kube', 'config'),
+                            overwrite_existing=False):
+    _save_member_credentials(
+        cmd, client, resource_group_name, name, member_names, continuation_token,
+        path, overwrite_existing
+    )
+
+
+def _decode_kubeconfig(value):
+    try:
+        return base64.b64decode(value, validate=True).decode(encoding='UTF-8')
+    except (binascii.Error, ValueError) as exc:
+        raise CLIError("Failed to decode Kubernetes credentials.") from exc
+
+
+def _save_member_credentials(cmd, client, resource_group_name, fleet_name, member_names,
+                             continuation_token, path, overwrite_existing, managed_namespace_name=None):
+    if is_stdout_path(path):
+        raise InvalidArgumentValueError(
+            "Member credentials must be saved to a kubeconfig file; --file - is not supported."
+        )
+    request = _build_member_credential_request(cmd, member_names, continuation_token)
+    tokens = {continuation_token} if continuation_token else set()
+    failures = []
+    saved = False
+    try:
+        while True:
+            kwargs = {
+                "resource_group_name": resource_group_name,
+                "fleet_name": fleet_name,
+                "body": request,
+            }
+            if managed_namespace_name is not None:
+                kwargs["managed_namespace_name"] = managed_namespace_name
+            response = client.list_member_credentials(**kwargs)
+            if response is None:
+                raise CLIError("No Kubernetes credentials found.")
+
+            for member in response.value or []:
+                if member.status != "Succeeded" or not member.kubeconfig:
+                    error = member.error
+                    logger.error(
+                        "Failed to get credentials for Fleet member '%s': %s (%s)",
+                        member.name, error.message if error else "No Kubernetes credentials found.",
+                        error.code if error else member.status
+                    )
+                    failures.append(member.name)
+                    continue
+                try:
+                    kubeconfig = _decode_kubeconfig(member.kubeconfig)
+                    print_or_merge_credentials(path, kubeconfig, overwrite_existing, None)
+                except CLIError as exc:
+                    logger.error("Failed to save credentials for Fleet member '%s': %s", member.name, exc)
+                    failures.append(member.name)
+                    continue
+                saved = True
+
+            token = response.continuation_token
+            if not token:
+                break
+            if token in tokens:
+                raise CLIError("The service returned a repeated continuation token.")
+            tokens.add(token)
+            request = _build_member_credential_request(cmd, continuation_token=token)
+    finally:
+        if saved:
+            _convert_kubeconfig_to_azurecli(path)
+
+    if failures:
+        raise CLIError(f"Failed to get or save credentials for Fleet members: {', '.join(failures)}.")
+    if not saved:
+        raise CLIError("No Kubernetes credentials found.")
+
+
+def list_namespace_credentials(cmd,  # pylint: disable=unused-argument
+                               client,
+                               resource_group_name,
+                               fleet_name,
+                               managed_namespace_name,
+                               path=os.path.join(os.path.expanduser('~'), '.kube', 'config'),
+                               overwrite_existing=False,
+                               context_name=None):
+    credential_results = client.list_credentials(
+        resource_group_name=resource_group_name,
+        fleet_name=fleet_name,
+        managed_namespace_name=managed_namespace_name
+    )
+    if (not credential_results or not credential_results.kubeconfigs or
+            not credential_results.kubeconfigs[0].value):
+        raise CLIError("No Kubernetes credentials found.")
+
+    kubeconfig = _decode_kubeconfig(credential_results.kubeconfigs[0].value)
+    print_or_merge_credentials(path, kubeconfig, overwrite_existing, context_name)
+    _convert_kubeconfig_to_azurecli(path)
+
+
+def list_namespace_member_credentials(cmd,
+                                      client,
+                                      resource_group_name,
+                                      fleet_name,
+                                      managed_namespace_name,
+                                      member_names=None,
+                                      continuation_token=None,
+                                      path=os.path.join(os.path.expanduser('~'), '.kube', 'config'),
+                                      overwrite_existing=False):
+    _save_member_credentials(
+        cmd, client, resource_group_name, fleet_name, member_names, continuation_token,
+        path, overwrite_existing, managed_namespace_name
+    )
 
 
 def create_cluster_mesh_profile(cmd,
